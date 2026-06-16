@@ -10,7 +10,7 @@ interface RouteMapProps {
   height?: number;
 }
 
-const MAPS_KEY = 'AIzaSyD7JKBa6ZyMh6uqna1ToyOi-hVnceT0Ckc';
+const MAPS_KEY = 'Your API Key';
 
 export function RouteMap({ stops, currentLocation, activeStopIndex = 0, height = 220 }: RouteMapProps) {
   const mapRef = useRef<any>(null);
