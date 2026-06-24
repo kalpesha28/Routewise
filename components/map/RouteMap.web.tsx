@@ -10,7 +10,6 @@ interface RouteMapProps {
   height?: number;
 }
 
-// SECURE FIX: This now pulls directly from your .env file
 const MAPS_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
 
 export function RouteMap({ stops, currentLocation, activeStopIndex = 0, height = 220 }: RouteMapProps) {
