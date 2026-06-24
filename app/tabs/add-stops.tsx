@@ -14,7 +14,7 @@ import { COLORS } from '@/constants';
 import { StopInput } from '@/types';
 
 
-const MAPS_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY;
+const MAPS_KEY = 'AIzaSyD7JKBa6ZyMh6uqna1ToyOi-hVnceT0Ckc';
 
 interface PlaceSuggestion {
   place_id: string;
@@ -121,35 +121,50 @@ export default function AddStopsScreen() {
 }
 
   async function handleAddStop() {
-    if (!selectedPlace || !customerName.trim() || !session) return;
-    if (paymentType === 'cod' && (!codAmount || isNaN(Number(codAmount)))) {
-      Alert.alert('Enter COD amount', 'Please enter the cash on delivery amount.');
-      return;
-    }
-
-    setAdding(true);
-    const stopData: StopInput = {
-      customer_name: customerName.trim(),
-      address: selectedPlace.address,
-      lat: selectedPlace.lat,
-      lng: selectedPlace.lng,
-      notes: notes.trim() || undefined,
-      payment_type: paymentType,
-      cod_amount: paymentType === 'cod' ? Number(codAmount) : undefined,
-      is_fragile: isFragile,
-    };
-
-    const newStop = await addStop(session.id, stopData, session.stops.length);
-    setAdding(false);
-
-    if (!newStop) {
-      Alert.alert('Error', 'Could not add stop. Check your connection.');
-      return;
-    }
-
-    setSession({ ...session, stops: [...session.stops, newStop] });
-    resetForm();
+  if (!selectedPlace || !customerName.trim()) return;
+  if (paymentType === 'cod' && (!codAmount || isNaN(Number(codAmount)))) {
+    Alert.alert('Enter COD amount', 'Please enter the cash on delivery amount.');
+    return;
   }
+
+  setAdding(true);
+
+  // Create session if it doesn't exist
+  let currentSession = session;
+  if (!currentSession && driver) {
+    currentSession = await getTodaySession(driver.id);
+    if (!currentSession) currentSession = await createSession(driver.id);
+    if (currentSession) setSession(currentSession);
+  }
+
+  if (!currentSession) {
+    setAdding(false);
+    Alert.alert('Error', 'Could not create session. Please try again.');
+    return;
+  }
+
+  const stopData: StopInput = {
+    customer_name: customerName.trim(),
+    address: selectedPlace.address,
+    lat: selectedPlace.lat,
+    lng: selectedPlace.lng,
+    notes: notes.trim() || undefined,
+    payment_type: paymentType,
+    cod_amount: paymentType === 'cod' ? Number(codAmount) : undefined,
+    is_fragile: isFragile,
+  };
+
+  const newStop = await addStop(currentSession.id, stopData, currentSession.stops.length);
+  setAdding(false);
+
+  if (!newStop) {
+    Alert.alert('Error', 'Could not add stop. Check your connection.');
+    return;
+  }
+
+  setSession({ ...currentSession, stops: [...currentSession.stops, newStop] });
+  resetForm();
+}
 
   function resetForm() {
     setQuery('');

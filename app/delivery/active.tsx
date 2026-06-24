@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Alert, Linking, Platform,
+  Alert, Linking, Platform, Vibration,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -12,11 +12,11 @@ import { markStopDelivered, markStopFailed, updateSession } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { RouteMap } from '@/components/map/RouteMap';
 import { StopCard } from '@/components/ui/StopCard';
-import { Button } from '@/components/ui/Button';
+import { LiveETACard } from '@/components/ui/LiveETACard';
 import { COLORS } from '@/constants';
 
 export default function ActiveDeliveryScreen() {
-  const { session, setSession, updateStop, activeStopIndex, setActiveStopIndex, currentLocation, driver } = useStore();
+  const { session, setSession, updateStop, currentLocation, driver } = useStore();
   const [marking, setMarking] = useState(false);
   const router = useRouter();
 
@@ -24,48 +24,33 @@ export default function ActiveDeliveryScreen() {
   const pendingStops = stops.filter(s => s.status === 'pending');
   const currentStop = pendingStops[0] ?? null;
   const deliveredCount = stops.filter(s => s.status === 'delivered').length;
+  const progress = stops.length > 0 ? deliveredCount / stops.length : 0;
 
   function openMapsNavigation() {
     if (!currentStop) return;
     const dest = `${currentStop.lat},${currentStop.lng}`;
-    const label = encodeURIComponent(currentStop.customer_name);
     const url = Platform.OS === 'ios'
       ? `maps://?daddr=${dest}`
       : `google.navigation:q=${dest}&mode=d`;
     Linking.canOpenURL(url).then(can => {
-      if (can) Linking.openURL(url);
-      else Linking.openURL(`https://maps.google.com/maps?daddr=${dest}`);
+      Linking.openURL(can ? url : `https://maps.google.com/maps?daddr=${dest}`);
     });
   }
 
   async function handleMarkDelivered() {
     if (!currentStop) return;
-
-    Alert.alert('Mark as delivered?', 'Do you want to add a proof of delivery photo?', [
-      {
-        text: 'No photo',
-        onPress: () => confirmDelivered(undefined),
-      },
-      {
-        text: 'Take photo',
-        onPress: takeProofPhoto,
-      },
+    Alert.alert('Mark as delivered?', 'Add a proof of delivery photo?', [
+      { text: 'No photo', onPress: () => confirmDelivered(undefined) },
+      { text: '📷 Take photo', onPress: takeProofPhoto },
     ]);
   }
 
   async function takeProofPhoto() {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Camera permission needed', 'Please allow camera access to take proof photos.');
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({
-      quality: 0.6,
-      allowsEditing: false,
-    });
+    if (status !== 'granted') { confirmDelivered(undefined); return; }
+    const result = await ImagePicker.launchCameraAsync({ quality: 0.6 });
     if (result.canceled) return;
-    const photoUri = result.assets[0].uri;
-    const photoUrl = await uploadProofPhoto(photoUri, currentStop!.id);
+    const photoUrl = await uploadProofPhoto(result.assets[0].uri, currentStop!.id);
     confirmDelivered(photoUrl ?? undefined);
   }
 
@@ -75,54 +60,44 @@ export default function ActiveDeliveryScreen() {
       const filename = `proof/${driver?.id}/${stopId}_${Date.now()}.${ext}`;
       const formData = new FormData();
       formData.append('file', { uri, name: filename, type: `image/${ext}` } as any);
-      const { data, error } = await supabase.storage.from('delivery-proofs').upload(filename, formData);
-      if (error) return null;
+      const { data } = await supabase.storage.from('delivery-proofs').upload(filename, formData);
+      if (!data) return null;
       const { data: urlData } = supabase.storage.from('delivery-proofs').getPublicUrl(filename);
       return urlData.publicUrl;
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   }
 
   async function confirmDelivered(photoUrl?: string) {
     if (!currentStop || !session) return;
     setMarking(true);
+    Vibration.vibrate(100);
     const ok = await markStopDelivered(currentStop.id, photoUrl);
     if (ok) {
       updateStop(currentStop.id, { status: 'delivered', proof_photo_url: photoUrl, delivered_at: new Date().toISOString() });
-      const remaining = pendingStops.length - 1;
-      if (remaining === 0) {
-        await finishDelivery();
-      }
+      if (pendingStops.length - 1 === 0) await finishDelivery();
     }
     setMarking(false);
   }
 
   async function handleMarkFailed() {
     if (!currentStop) return;
-    Alert.alert('Mark as failed?', 'This stop will be marked as undelivered.', [
+    Alert.alert('Mark as failed?', 'This stop will be skipped.', [
       { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Mark failed',
-        style: 'destructive',
-        onPress: async () => {
-          setMarking(true);
-          await markStopFailed(currentStop.id);
-          updateStop(currentStop.id, { status: 'failed' });
-          setMarking(false);
-        },
-      },
+      { text: 'Mark failed', style: 'destructive', onPress: async () => {
+        setMarking(true);
+        await markStopFailed(currentStop.id);
+        updateStop(currentStop.id, { status: 'failed' });
+        setMarking(false);
+      }},
     ]);
   }
 
   async function finishDelivery() {
     if (!session) return;
-    await updateSession(session.id, {
-      status: 'completed',
-      completed_at: new Date().toISOString(),
-    });
+    await updateSession(session.id, { status: 'completed', completed_at: new Date().toISOString() });
     setSession({ ...session, status: 'completed' });
-    Alert.alert('All done! 🎉', `You completed ${deliveredCount + 1} deliveries today!`, [
+    Vibration.vibrate([0, 100, 100, 100]);
+    Alert.alert('🎉 All done!', `You completed ${deliveredCount + 1} deliveries today!`, [
       { text: 'View summary', onPress: () => router.replace('/tabs/history') },
     ]);
   }
@@ -133,7 +108,9 @@ export default function ActiveDeliveryScreen() {
         <View style={styles.emptyState}>
           <Text style={{ fontSize: 48 }}>📭</Text>
           <Text style={styles.emptyTitle}>No active delivery</Text>
-          <Button title="Go back" onPress={() => router.back()} variant="secondary" />
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+            <Text style={styles.backBtnText}>Go back</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -143,105 +120,102 @@ export default function ActiveDeliveryScreen() {
     <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
       {/* Top bar */}
       <View style={styles.topBar}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Ionicons name="chevron-down" size={22} color={COLORS.gray700} />
+        <TouchableOpacity style={styles.closeBtn} onPress={() => router.back()}>
+          <Ionicons name="chevron-down" size={20} color={COLORS.gray700} />
         </TouchableOpacity>
         <View style={styles.topCenter}>
           <Text style={styles.topTitle}>Active delivery</Text>
-          <Text style={styles.topSub}>{deliveredCount}/{stops.length} done</Text>
+          <Text style={styles.topSub}>{deliveredCount}/{stops.length} completed</Text>
         </View>
-        <View style={{ width: 40 }} />
+        <View style={styles.progressCircle}>
+          <Text style={styles.progressCircleText}>{Math.round(progress * 100)}%</Text>
+        </View>
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+      {/* Progress bar */}
+      <View style={styles.progressBar}>
+        <View style={[styles.progressFill, { width: `${progress * 100}%` as any }]} />
+      </View>
+
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* Map */}
         <RouteMap
           stops={stops}
           currentLocation={currentLocation}
           activeStopIndex={stops.findIndex(s => s.id === currentStop?.id)}
-          height={190}
+          height={180}
         />
 
-        {/* Current stop card */}
+        {/* Current stop */}
         {currentStop ? (
-          <View style={styles.currentCard}>
-            <View style={styles.currentHeader}>
-              <View style={styles.nextBadge}>
-                <Text style={styles.nextBadgeText}>Next stop</Text>
-              </View>
-              {currentStop.is_fragile && (
-                <View style={styles.fragileBadge}>
-                  <Text style={styles.fragileBadgeText}>⚠️ Fragile</Text>
-                </View>
-              )}
-            </View>
+          <>
+            <LiveETACard
+              stop={currentStop}
+              currentLocation={currentLocation}
+              onNavigate={openMapsNavigation}
+            />
 
-            <Text style={styles.customerName}>{currentStop.customer_name}</Text>
-            <Text style={styles.address}>{currentStop.address}</Text>
-
-            {currentStop.notes ? (
-              <View style={styles.notesRow}>
-                <Ionicons name="document-text-outline" size={13} color={COLORS.gray500} />
-                <Text style={styles.notesText}>{currentStop.notes}</Text>
-              </View>
-            ) : null}
-
-            {currentStop.payment_type === 'cod' && (
-              <View style={styles.codBanner}>
-                <Ionicons name="cash-outline" size={16} color="#92400e" />
-                <Text style={styles.codText}>
-                  Collect <Text style={{ fontWeight: '700' }}>₹{currentStop.cod_amount}</Text> cash on delivery
-                </Text>
+            {currentStop.is_fragile && (
+              <View style={styles.fragileAlert}>
+                <Text style={styles.fragileIcon}>⚠️</Text>
+                <Text style={styles.fragileText}>Fragile package — handle with care</Text>
               </View>
             )}
 
-            {/* Navigate button */}
-            <TouchableOpacity style={styles.navigateBtn} onPress={openMapsNavigation}>
-              <Ionicons name="navigate" size={18} color={COLORS.white} />
-              <Text style={styles.navigateBtnText}>Open in Google Maps</Text>
-            </TouchableOpacity>
+            {currentStop.notes && (
+              <View style={styles.notesCard}>
+                <Ionicons name="document-text-outline" size={16} color={COLORS.gray500} />
+                <Text style={styles.notesText}>{currentStop.notes}</Text>
+              </View>
+            )}
 
-            {/* Action buttons */}
-            <View style={styles.actionRow}>
-              <Button
-                title="Failed"
+            {/* Delivery actions */}
+            <View style={styles.deliveryActions}>
+              <TouchableOpacity
+                style={styles.failBtn}
                 onPress={handleMarkFailed}
-                variant="danger"
-                loading={marking}
-                style={{ flex: 1 }}
-                size="sm"
-              />
-              <Button
-                title="Delivered ✓"
+                disabled={marking}
+              >
+                <Ionicons name="close-circle-outline" size={20} color={COLORS.danger} />
+                <Text style={styles.failBtnText}>Failed</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.deliveredBtn}
                 onPress={handleMarkDelivered}
-                loading={marking}
-                style={{ flex: 1, backgroundColor: COLORS.success }}
-                size="sm"
-              />
+                disabled={marking}
+              >
+                <Ionicons name="checkmark-circle" size={20} color={COLORS.white} />
+                <Text style={styles.deliveredBtnText}>{marking ? 'Saving...' : 'Mark Delivered'}</Text>
+              </TouchableOpacity>
             </View>
-          </View>
+          </>
         ) : (
           <View style={styles.allDoneCard}>
-            <Text style={{ fontSize: 40 }}>🎉</Text>
+            <Text style={{ fontSize: 48 }}>🎉</Text>
             <Text style={styles.allDoneTitle}>All stops done!</Text>
-            <Button title="Finish & see summary" onPress={finishDelivery} />
+            <TouchableOpacity style={styles.finishBtn} onPress={finishDelivery}>
+              <Text style={styles.finishBtnText}>Finish & see summary →</Text>
+            </TouchableOpacity>
           </View>
         )}
 
-        {/* Remaining stops */}
+        {/* Upcoming stops */}
         {pendingStops.length > 1 && (
-          <View style={styles.upNext}>
-            <Text style={styles.sectionTitle}>Up next ({pendingStops.length - 1} stops)</Text>
-            {pendingStops.slice(1).map((stop, i) => (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Up next · {pendingStops.length - 1} stops</Text>
+            {pendingStops.slice(1, 4).map((stop, i) => (
               <StopCard key={stop.id} stop={stop} index={i + 1} />
             ))}
+            {pendingStops.length > 4 && (
+              <Text style={styles.moreStops}>+{pendingStops.length - 4} more stops</Text>
+            )}
           </View>
         )}
 
-        {/* Completed stops */}
+        {/* Completed */}
         {deliveredCount > 0 && (
-          <View style={styles.completedSection}>
-            <Text style={styles.sectionTitle}>Completed ({deliveredCount})</Text>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Completed · {deliveredCount}</Text>
             {stops.filter(s => s.status !== 'pending').map((stop, i) => (
               <StopCard key={stop.id} stop={stop} index={i} />
             ))}
@@ -257,53 +231,60 @@ const styles = StyleSheet.create({
   topBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingVertical: 12,
-    backgroundColor: COLORS.white, borderBottomWidth: 0.5, borderBottomColor: COLORS.gray200,
+    backgroundColor: COLORS.white, borderBottomWidth: 0.5, borderBottomColor: COLORS.gray100,
   },
-  backBtn: {
-    width: 40, height: 40, borderRadius: 20,
+  closeBtn: {
+    width: 36, height: 36, borderRadius: 10,
     backgroundColor: COLORS.gray100, alignItems: 'center', justifyContent: 'center',
   },
   topCenter: { alignItems: 'center' },
-  topTitle: { fontSize: 16, fontWeight: '600', color: COLORS.gray900 },
-  topSub: { fontSize: 12, color: COLORS.gray500 },
+  topTitle: { fontSize: 16, fontWeight: '700', color: COLORS.gray900 },
+  topSub: { fontSize: 12, color: COLORS.gray400 },
+  progressCircle: {
+    width: 36, height: 36, borderRadius: 10,
+    backgroundColor: COLORS.accentLight, alignItems: 'center', justifyContent: 'center',
+  },
+  progressCircleText: { fontSize: 11, fontWeight: '700', color: COLORS.accent },
+  progressBar: { height: 3, backgroundColor: COLORS.gray100 },
+  progressFill: { height: 3, backgroundColor: COLORS.accent },
   scroll: { flex: 1 },
-  content: { padding: 16, gap: 14, paddingBottom: 40 },
-  currentCard: {
-    backgroundColor: COLORS.white, borderRadius: 16, padding: 16,
-    borderWidth: 0.5, borderColor: COLORS.gray200, gap: 10,
+  content: { padding: 16, gap: 12, paddingBottom: 40 },
+  fragileAlert: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: COLORS.dangerLight, borderRadius: 12, padding: 12,
   },
-  currentHeader: { flexDirection: 'row', gap: 8 },
-  nextBadge: {
-    backgroundColor: COLORS.accentLight, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3,
+  fragileIcon: { fontSize: 16 },
+  fragileText: { fontSize: 13, fontWeight: '600', color: COLORS.danger },
+  notesCard: {
+    flexDirection: 'row', gap: 8, alignItems: 'flex-start',
+    backgroundColor: COLORS.gray50, borderRadius: 12, padding: 12,
+    borderWidth: 1, borderColor: COLORS.gray100,
   },
-  nextBadgeText: { fontSize: 11, fontWeight: '600', color: COLORS.accent },
-  fragileBadge: {
-    backgroundColor: COLORS.dangerLight, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3,
+  notesText: { flex: 1, fontSize: 13, color: COLORS.gray500, lineHeight: 18 },
+  deliveryActions: { flexDirection: 'row', gap: 10 },
+  failBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, borderRadius: 16, paddingVertical: 15,
+    backgroundColor: COLORS.dangerLight, borderWidth: 1.5, borderColor: COLORS.danger + '30',
   },
-  fragileBadgeText: { fontSize: 11, fontWeight: '600', color: COLORS.danger },
-  customerName: { fontSize: 20, fontWeight: '700', color: COLORS.gray900 },
-  address: { fontSize: 13, color: COLORS.gray500, lineHeight: 18 },
-  notesRow: { flexDirection: 'row', gap: 6, alignItems: 'flex-start', backgroundColor: COLORS.gray50, borderRadius: 8, padding: 8 },
-  notesText: { fontSize: 12, color: COLORS.gray500, flex: 1 },
-  codBanner: {
-    flexDirection: 'row', gap: 8, alignItems: 'center',
-    backgroundColor: COLORS.warningLight, borderRadius: 10, padding: 12,
+  failBtnText: { fontSize: 15, fontWeight: '700', color: COLORS.danger },
+  deliveredBtn: {
+    flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, backgroundColor: COLORS.success, borderRadius: 16, paddingVertical: 15,
   },
-  codText: { fontSize: 14, color: '#92400e' },
-  navigateBtn: {
-    flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: COLORS.accent, borderRadius: 12, paddingVertical: 13,
-  },
-  navigateBtnText: { color: COLORS.white, fontWeight: '600', fontSize: 15 },
-  actionRow: { flexDirection: 'row', gap: 10 },
+  deliveredBtnText: { fontSize: 15, fontWeight: '700', color: COLORS.white },
   allDoneCard: {
-    backgroundColor: COLORS.white, borderRadius: 16, padding: 32,
-    alignItems: 'center', gap: 12, borderWidth: 0.5, borderColor: COLORS.gray200,
+    backgroundColor: COLORS.white, borderRadius: 20, padding: 32,
+    alignItems: 'center', gap: 12, borderWidth: 1, borderColor: COLORS.gray100,
   },
-  allDoneTitle: { fontSize: 20, fontWeight: '700', color: COLORS.gray900 },
-  upNext: { gap: 8 },
-  completedSection: { gap: 8 },
-  sectionTitle: { fontSize: 13, fontWeight: '600', color: COLORS.gray500, textTransform: 'uppercase', letterSpacing: 0.4 },
+  allDoneTitle: { fontSize: 22, fontWeight: '800', color: COLORS.gray900 },
+  finishBtn: { backgroundColor: COLORS.primary, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 24 },
+  finishBtnText: { color: COLORS.white, fontWeight: '700', fontSize: 15 },
+  section: { gap: 8 },
+  sectionTitle: { fontSize: 13, fontWeight: '700', color: COLORS.gray400, textTransform: 'uppercase', letterSpacing: 0.5 },
+  moreStops: { fontSize: 12, color: COLORS.gray400, textAlign: 'center', padding: 8 },
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14 },
   emptyTitle: { fontSize: 18, fontWeight: '600', color: COLORS.gray700 },
+  backBtn: { backgroundColor: COLORS.gray100, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 24 },
+  backBtnText: { fontSize: 15, fontWeight: '600', color: COLORS.gray700 },
 });

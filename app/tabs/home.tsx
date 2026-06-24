@@ -1,7 +1,7 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
-  RefreshControl, TouchableOpacity, Alert,
+  RefreshControl, TouchableOpacity,
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,8 +13,7 @@ import { useLocation } from '@/hooks/useLocation';
 import { RouteMap } from '@/components/map/RouteMap';
 import { StopCard } from '@/components/ui/StopCard';
 import { FuelSavingsBanner } from '@/components/ui/FuelSavingsBanner';
-import { Button } from '@/components/ui/Button';
-import { COLORS, GOOGLE_MAPS_REGION_INDIA } from '@/constants';
+import { COLORS, VEHICLE_TYPES } from '@/constants';
 
 export default function HomeScreen() {
   const { driver, session, setSession, activeStopIndex } = useStore();
@@ -23,11 +22,7 @@ export default function HomeScreen() {
   const [optimizing, setOptimizing] = useState(false);
   const router = useRouter();
 
-  useFocusEffect(
-    useCallback(() => {
-      loadSession();
-    }, [driver])
-  );
+  useFocusEffect(useCallback(() => { loadSession(); }, [driver]));
 
   async function loadSession() {
     if (!driver) return;
@@ -42,42 +37,24 @@ export default function HomeScreen() {
   }
 
   async function handleOptimize() {
-    if (!session || session.stops.length < 2) {
-      Alert.alert('Need at least 2 stops', 'Add more delivery stops first.');
-      return;
-    }
+    if (!session || session.stops.length < 2) return;
     setOptimizing(true);
-    const origin = currentLocation ?? {
-      lat: session.stops[0].lat,
-      lng: session.stops[0].lng,
-    };
+    const origin = currentLocation ?? { lat: session.stops[0].lat, lng: session.stops[0].lng };
     const result = optimizeRoute(session.stops, origin, driver?.vehicle_type ?? 'bike');
-
     await updateSession(session.id, {
       optimized_distance_km: result.totalDistanceKm,
       total_distance_km: result.totalDistanceKm,
       fuel_saved_inr: result.fuelSavedInr,
     });
-
-    // Update stop order in DB
     const { updateStopOrder } = await import('@/lib/api');
     await updateStopOrder(result.orderedStops.map((s, i) => ({ id: s.id, order_index: i })));
-
-    setSession({
-      ...session,
-      stops: result.orderedStops,
-      optimized_distance_km: result.totalDistanceKm,
-      fuel_saved_inr: result.fuelSavedInr,
-    });
+    setSession({ ...session, stops: result.orderedStops, optimized_distance_km: result.totalDistanceKm, fuel_saved_inr: result.fuelSavedInr });
     setOptimizing(false);
   }
 
   async function handleStartDelivery() {
     if (!session) return;
-    await updateSession(session.id, {
-      status: 'active',
-      started_at: new Date().toISOString(),
-    });
+    await updateSession(session.id, { status: 'active', started_at: new Date().toISOString() });
     setSession({ ...session, status: 'active' });
     router.push('/delivery/active');
   }
@@ -88,67 +65,63 @@ export default function HomeScreen() {
     setSession(s);
   }
 
-  const pendingStops = session?.stops.filter(s => s.status === 'pending') ?? [];
+  const vehicleInfo = VEHICLE_TYPES.find(v => v.value === driver?.vehicle_type);
   const deliveredCount = session?.stops.filter(s => s.status === 'delivered').length ?? 0;
   const totalStops = session?.stops.length ?? 0;
-  const greeting = new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 17 ? 'Good afternoon' : 'Good evening';
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={COLORS.accent} />}
+        showsVerticalScrollIndicator={false}
       >
         {/* Header */}
         <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>{greeting}, {driver?.name?.split(' ')[0] ?? 'there'} 👋</Text>
-            <Text style={styles.date}>{new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}</Text>
+          <View style={styles.headerLeft}>
+            <Text style={styles.greeting}>{greeting} 👋</Text>
+            <Text style={styles.driverName}>{driver?.name || 'Driver'}</Text>
           </View>
-          <TouchableOpacity style={styles.vehicleBadge}>
-            <Text style={styles.vehicleText}>
-              {driver?.vehicle_type === 'bike' ? '🛵' :
-               driver?.vehicle_type === 'auto' ? '🛺' :
-               driver?.vehicle_type === 'car' ? '🚗' : '🚐'}
-            </Text>
-          </TouchableOpacity>
+          <View style={styles.vehicleBadge}>
+            <Text style={styles.vehicleEmoji}>{vehicleInfo?.icon ?? '🛵'}</Text>
+          </View>
         </View>
 
-        {/* No session state */}
         {!session ? (
           <View style={styles.emptyCard}>
-            <Text style={{ fontSize: 48, textAlign: 'center' }}>📦</Text>
-            <Text style={styles.emptyTitle}>No deliveries today</Text>
-            <Text style={styles.emptySub}>Start a new session to plan your route</Text>
-            <Button title="Start today's deliveries" onPress={handleNewSession} style={{ marginTop: 8 }} />
+            <View style={styles.emptyIconWrap}>
+              <Text style={{ fontSize: 40 }}>📦</Text>
+            </View>
+            <Text style={styles.emptyTitle}>Ready to deliver?</Text>
+            <Text style={styles.emptySub}>Start a new session to plan today's route</Text>
+            <TouchableOpacity style={styles.startBtn} onPress={handleNewSession}>
+              <Text style={styles.startBtnText}>Start today's deliveries →</Text>
+            </TouchableOpacity>
           </View>
         ) : (
           <>
-            {/* Map */}
-            {session.stops.length > 0 && (
-              <RouteMap
-                stops={session.stops}
-                currentLocation={currentLocation}
-                activeStopIndex={activeStopIndex}
-                height={200}
-              />
-            )}
-
-            {/* Progress bar when active */}
             {session.status === 'active' && totalStops > 0 && (
               <View style={styles.progressCard}>
                 <View style={styles.progressHeader}>
-                  <Text style={styles.progressLabel}>Today's progress</Text>
-                  <Text style={styles.progressCount}>{deliveredCount}/{totalStops} done</Text>
+                  <View>
+                    <Text style={styles.progressTitle}>In progress</Text>
+                    <Text style={styles.progressSub}>{deliveredCount} of {totalStops} delivered</Text>
+                  </View>
+                  <Text style={styles.progressPct}>{Math.round((deliveredCount / totalStops) * 100)}%</Text>
                 </View>
-                <View style={styles.progressBar}>
-                  <View style={[styles.progressFill, { width: `${(deliveredCount / totalStops) * 100}%` }]} />
+                <View style={styles.progressTrack}>
+                  <View style={[styles.progressFill, { width: `${(deliveredCount / totalStops) * 100}%` as any }]} />
                 </View>
               </View>
             )}
 
-            {/* Stats banner */}
+            {session.stops.length > 0 && (
+              <RouteMap stops={session.stops} currentLocation={currentLocation} activeStopIndex={activeStopIndex} height={200} />
+            )}
+
             {session.stops.length > 0 && (
               <FuelSavingsBanner
                 distanceKm={session.optimized_distance_km}
@@ -159,49 +132,52 @@ export default function HomeScreen() {
               />
             )}
 
-            {/* Action buttons */}
             {session.status === 'planning' && (
               <View style={styles.actionRow}>
-                <Button
-                  title="Optimize Route"
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.actionBtnSecondary]}
                   onPress={handleOptimize}
-                  loading={optimizing}
-                  variant="secondary"
-                  style={{ flex: 1 }}
-                />
-                <Button
-                  title="Start Delivery"
+                  disabled={optimizing || session.stops.length < 2}
+                >
+                  <Ionicons name="git-branch-outline" size={18} color={COLORS.primary} />
+                  <Text style={styles.actionBtnSecondaryText}>{optimizing ? 'Optimizing...' : 'Optimize'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.actionBtnPrimary, session.stops.length === 0 && { opacity: 0.4 }]}
                   onPress={handleStartDelivery}
                   disabled={session.stops.length === 0}
-                  style={{ flex: 1 }}
-                />
+                >
+                  <Ionicons name="navigate" size={18} color={COLORS.white} />
+                  <Text style={styles.actionBtnPrimaryText}>Start delivery</Text>
+                </TouchableOpacity>
               </View>
             )}
 
             {session.status === 'active' && (
-              <Button title="Continue Delivery →" onPress={() => router.push('/delivery/active')} />
+              <TouchableOpacity style={styles.continueBtn} onPress={() => router.push('/delivery/active')}>
+                <View style={styles.continueDot} />
+                <Text style={styles.continueBtnText}>Continue active delivery</Text>
+                <Ionicons name="chevron-forward" size={18} color={COLORS.white} />
+              </TouchableOpacity>
             )}
 
-            {/* Stops list */}
             {session.stops.length > 0 ? (
-              <View style={styles.stopsList}>
-                <Text style={styles.sectionTitle}>
-                  {pendingStops.length} stops remaining
-                </Text>
+              <View style={styles.stopsSection}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Today's stops</Text>
+                  <View style={styles.countBadge}>
+                    <Text style={styles.countBadgeText}>{session.stops.length}</Text>
+                  </View>
+                </View>
                 {session.stops.map((stop, i) => (
                   <StopCard key={stop.id} stop={stop} index={i} isActive={session.status === 'active' && i === activeStopIndex} />
                 ))}
               </View>
             ) : (
-              <View style={styles.noStops}>
-                <Text style={styles.noStopsText}>No stops yet. Go to Add Stops to plan your route.</Text>
-                <Button
-                  title="+ Add delivery stops"
-                  onPress={() => router.push('/tabs/add-stops')}
-                  variant="secondary"
-                  style={{ marginTop: 12 }}
-                />
-              </View>
+              <TouchableOpacity style={styles.addStopsCard} onPress={() => router.push('/tabs/add-stops')}>
+                <Ionicons name="add-circle-outline" size={24} color={COLORS.accent} />
+                <Text style={styles.addStopsText}>Tap to add delivery stops</Text>
+              </TouchableOpacity>
             )}
           </>
         )}
@@ -213,37 +189,71 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLORS.gray50 },
   scroll: { flex: 1 },
-  content: { padding: 16, gap: 14, paddingBottom: 32 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
-  greeting: { fontSize: 20, fontWeight: '700', color: COLORS.gray900 },
-  date: { fontSize: 13, color: COLORS.gray500, marginTop: 2 },
+  content: { paddingBottom: 32, gap: 14 },
+  header: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8,
+  },
+  headerLeft: { gap: 2 },
+  greeting: { fontSize: 13, color: COLORS.gray500, fontWeight: '500' },
+  driverName: { fontSize: 22, fontWeight: '800', color: COLORS.gray900, letterSpacing: -0.3 },
   vehicleBadge: {
-    width: 42, height: 42, borderRadius: 12,
-    backgroundColor: COLORS.white, borderWidth: 0.5, borderColor: COLORS.gray200,
-    alignItems: 'center', justifyContent: 'center',
+    width: 46, height: 46, borderRadius: 14,
+    backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center',
   },
-  vehicleText: { fontSize: 22 },
+  vehicleEmoji: { fontSize: 22 },
   emptyCard: {
-    backgroundColor: COLORS.white, borderRadius: 20, padding: 32,
-    alignItems: 'center', gap: 10, borderWidth: 0.5, borderColor: COLORS.gray200,
+    marginHorizontal: 20, backgroundColor: COLORS.primary, borderRadius: 24,
+    padding: 28, alignItems: 'center', gap: 10,
   },
-  emptyTitle: { fontSize: 18, fontWeight: '600', color: COLORS.gray900 },
-  emptySub: { fontSize: 13, color: COLORS.gray500, textAlign: 'center' },
+  emptyIconWrap: {
+    width: 72, height: 72, borderRadius: 20,
+    backgroundColor: COLORS.primaryMid, alignItems: 'center', justifyContent: 'center', marginBottom: 4,
+  },
+  emptyTitle: { fontSize: 20, fontWeight: '700', color: COLORS.white },
+  emptySub: { fontSize: 13, color: COLORS.gray400, textAlign: 'center' },
+  startBtn: {
+    backgroundColor: COLORS.accent, borderRadius: 14,
+    paddingVertical: 14, paddingHorizontal: 24, marginTop: 8,
+  },
+  startBtnText: { color: COLORS.primary, fontWeight: '700', fontSize: 15 },
   progressCard: {
-    backgroundColor: COLORS.white, borderRadius: 14, padding: 14,
-    borderWidth: 0.5, borderColor: COLORS.gray200, gap: 10,
+    marginHorizontal: 20, backgroundColor: COLORS.primary,
+    borderRadius: 20, padding: 18, gap: 12,
   },
-  progressHeader: { flexDirection: 'row', justifyContent: 'space-between' },
-  progressLabel: { fontSize: 13, fontWeight: '500', color: COLORS.gray700 },
-  progressCount: { fontSize: 13, fontWeight: '600', color: COLORS.accent },
-  progressBar: { height: 6, backgroundColor: COLORS.gray100, borderRadius: 3, overflow: 'hidden' },
+  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  progressTitle: { fontSize: 15, fontWeight: '700', color: COLORS.white },
+  progressSub: { fontSize: 12, color: COLORS.gray400, marginTop: 2 },
+  progressPct: { fontSize: 28, fontWeight: '800', color: COLORS.accent },
+  progressTrack: { height: 6, backgroundColor: COLORS.primaryMid, borderRadius: 3, overflow: 'hidden' },
   progressFill: { height: 6, backgroundColor: COLORS.accent, borderRadius: 3 },
-  actionRow: { flexDirection: 'row', gap: 10 },
-  sectionTitle: { fontSize: 14, fontWeight: '600', color: COLORS.gray700, marginBottom: 4 },
-  stopsList: { gap: 0 },
-  noStops: {
-    backgroundColor: COLORS.white, borderRadius: 14, padding: 20,
-    alignItems: 'center', borderWidth: 0.5, borderColor: COLORS.gray200,
+  actionRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 20 },
+  actionBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', gap: 8, borderRadius: 16, paddingVertical: 15,
   },
-  noStopsText: { fontSize: 13, color: COLORS.gray500, textAlign: 'center' },
+  actionBtnPrimary: { backgroundColor: COLORS.primary },
+  actionBtnSecondary: { backgroundColor: COLORS.white, borderWidth: 1.5, borderColor: COLORS.gray200 },
+  actionBtnPrimaryText: { color: COLORS.white, fontWeight: '700', fontSize: 15 },
+  actionBtnSecondaryText: { color: COLORS.primary, fontWeight: '700', fontSize: 15 },
+  continueBtn: {
+    marginHorizontal: 20, backgroundColor: COLORS.success,
+    borderRadius: 16, paddingVertical: 16, paddingHorizontal: 20,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+  },
+  continueDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.white },
+  continueBtnText: { flex: 1, color: COLORS.white, fontWeight: '700', fontSize: 15 },
+  stopsSection: { paddingHorizontal: 20, gap: 8 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  sectionTitle: { fontSize: 15, fontWeight: '700', color: COLORS.gray900 },
+  countBadge: {
+    backgroundColor: COLORS.primary, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2,
+  },
+  countBadgeText: { fontSize: 12, fontWeight: '700', color: COLORS.white },
+  addStopsCard: {
+    marginHorizontal: 20, flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: COLORS.accentLight, borderRadius: 16, padding: 18,
+    borderWidth: 1.5, borderColor: COLORS.accent + '40',
+  },
+  addStopsText: { fontSize: 15, fontWeight: '600', color: COLORS.accent },
 });

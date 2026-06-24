@@ -12,43 +12,31 @@ interface Props {
   stopCount: number;
 }
 
-export function FuelSavingsBanner({
-  distanceKm,
-  estimatedMinutes,
-  fuelSavedInr,
-  savedKm,
-  stopCount,
-}: Props) {
+export function FuelSavingsBanner({ distanceKm, estimatedMinutes, fuelSavedInr, savedKm, stopCount }: Props) {
   return (
     <View style={styles.container}>
-      {/* Top row - stats */}
       <View style={styles.statsRow}>
-        <View style={styles.stat}>
-          <Ionicons name="map-outline" size={16} color={COLORS.accent} />
-          <Text style={styles.statValue}>{formatDistance(distanceKm)}</Text>
-          <Text style={styles.statLabel}>Route</Text>
-        </View>
-        <View style={styles.divider} />
-        <View style={styles.stat}>
-          <Ionicons name="time-outline" size={16} color={COLORS.accent} />
-          <Text style={styles.statValue}>{formatDuration(estimatedMinutes)}</Text>
-          <Text style={styles.statLabel}>Est. time</Text>
-        </View>
-        <View style={styles.divider} />
-        <View style={styles.stat}>
-          <Ionicons name="location-outline" size={16} color={COLORS.accent} />
-          <Text style={styles.statValue}>{stopCount}</Text>
-          <Text style={styles.statLabel}>Stops</Text>
-        </View>
+        {[
+          { icon: 'map-outline', val: formatDistance(distanceKm), label: 'Route' },
+          { icon: 'time-outline', val: formatDuration(estimatedMinutes), label: 'Est. time' },
+          { icon: 'location-outline', val: `${stopCount}`, label: 'Stops' },
+        ].map((s, i) => (
+          <React.Fragment key={i}>
+            <View style={styles.stat}>
+              <Ionicons name={s.icon as any} size={16} color={COLORS.accent} />
+              <Text style={styles.statVal}>{s.val}</Text>
+              <Text style={styles.statLabel}>{s.label}</Text>
+            </View>
+            {i < 2 && <View style={styles.divider} />}
+          </React.Fragment>
+        ))}
       </View>
 
-      {/* Savings row */}
       {fuelSavedInr > 0 && (
         <View style={styles.savingsRow}>
-          <Ionicons name="leaf-outline" size={13} color={COLORS.success} />
+          <Text style={styles.savingsEmoji}>🌿</Text>
           <Text style={styles.savingsText}>
-            Saved <Text style={styles.savingsAmount}>₹{fuelSavedInr.toFixed(0)}</Text> in
-            fuel vs manual route ({formatDistance(savedKm)} shorter)
+            Saved <Text style={styles.savingsAmt}>₹{fuelSavedInr.toFixed(0)}</Text> vs manual route · {formatDistance(savedKm)} shorter
           </Text>
         </View>
       )}
@@ -58,52 +46,22 @@ export function FuelSavingsBanner({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: COLORS.white,
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 0.5,
-    borderColor: COLORS.gray200,
-    gap: 10,
+    marginHorizontal: 20, backgroundColor: COLORS.white, borderRadius: 20,
+    padding: 16, gap: 12,
+    borderWidth: 1, borderColor: COLORS.gray100,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
   },
-  statsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-  },
-  stat: {
-    alignItems: 'center',
-    gap: 3,
-    flex: 1,
-  },
-  statValue: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: COLORS.gray900,
-  },
-  statLabel: {
-    fontSize: 11,
-    color: COLORS.gray400,
-  },
-  divider: {
-    width: 0.5,
-    height: 32,
-    backgroundColor: COLORS.gray200,
-  },
+  statsRow: { flexDirection: 'row', alignItems: 'center' },
+  stat: { flex: 1, alignItems: 'center', gap: 4 },
+  statVal: { fontSize: 16, fontWeight: '700', color: COLORS.gray900 },
+  statLabel: { fontSize: 11, color: COLORS.gray400 },
+  divider: { width: 1, height: 36, backgroundColor: COLORS.gray100 },
   savingsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: COLORS.successLight,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: COLORS.successLight, borderRadius: 12, padding: 10,
   },
-  savingsText: {
-    fontSize: 12,
-    color: '#166534',
-    flex: 1,
-  },
-  savingsAmount: {
-    fontWeight: '600',
-  },
+  savingsEmoji: { fontSize: 14 },
+  savingsText: { fontSize: 12, color: '#065f46', flex: 1 },
+  savingsAmt: { fontWeight: '700' },
 });

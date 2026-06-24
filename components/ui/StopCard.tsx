@@ -13,158 +13,76 @@ interface StopCardProps {
   showDelete?: boolean;
 }
 
-export function StopCard({
-  stop,
-  index,
-  isActive = false,
-  onPress,
-  onDelete,
-  showDelete = false,
-}: StopCardProps) {
-  const statusColor =
-    stop.status === 'delivered'
-      ? COLORS.success
-      : stop.status === 'failed'
-      ? COLORS.danger
-      : isActive
-      ? COLORS.accent
-      : COLORS.gray400;
-
-  const statusBg =
-    stop.status === 'delivered'
-      ? COLORS.successLight
-      : stop.status === 'failed'
-      ? COLORS.dangerLight
-      : isActive
-      ? COLORS.accentLight
-      : COLORS.gray100;
+export function StopCard({ stop, index, isActive, onPress, onDelete, showDelete }: StopCardProps) {
+  const isDone = stop.status === 'delivered';
+  const isFailed = stop.status === 'failed';
 
   return (
     <TouchableOpacity
-      style={[styles.card, isActive && styles.cardActive]}
+      style={[styles.card, isActive && styles.cardActive, isDone && styles.cardDone, isFailed && styles.cardFailed]}
       onPress={onPress}
       activeOpacity={0.85}
     >
-      {/* Number badge */}
-      <View style={[styles.badge, { backgroundColor: statusBg }]}>
-        {stop.status === 'delivered' ? (
-          <Ionicons name="checkmark" size={14} color={statusColor} />
-        ) : stop.status === 'failed' ? (
-          <Ionicons name="close" size={14} color={statusColor} />
-        ) : (
-          <Text style={[styles.badgeText, { color: statusColor }]}>{index + 1}</Text>
-        )}
+      <View style={[styles.numWrap, isDone && styles.numWrapDone, isActive && styles.numWrapActive, isFailed && styles.numWrapFailed]}>
+        {isDone
+          ? <Ionicons name="checkmark" size={14} color={COLORS.white} />
+          : isFailed
+          ? <Ionicons name="close" size={14} color={COLORS.white} />
+          : <Text style={[styles.num, isActive && styles.numActive]}>{index + 1}</Text>
+        }
       </View>
 
-      {/* Content */}
       <View style={styles.content}>
-        <Text style={styles.name} numberOfLines={1}>
-          {stop.customer_name}
-        </Text>
-        <Text style={styles.address} numberOfLines={2}>
-          {stop.address}
-        </Text>
-
-        {/* Tags row */}
+        <Text style={[styles.name, isDone && styles.nameDone]} numberOfLines={1}>{stop.customer_name}</Text>
+        <Text style={styles.address} numberOfLines={1}>{stop.address}</Text>
         <View style={styles.tags}>
-          {stop.payment_type === 'cod' && stop.cod_amount ? (
-            <View style={[styles.tag, styles.tagCod]}>
-              <Text style={styles.tagCodText}>COD ₹{stop.cod_amount}</Text>
-            </View>
-          ) : (
-            <View style={[styles.tag, styles.tagPaid]}>
-              <Text style={styles.tagPaidText}>Paid</Text>
-            </View>
-          )}
-          {stop.is_fragile && (
-            <View style={[styles.tag, styles.tagFragile]}>
-              <Text style={styles.tagFragileText}>Fragile</Text>
-            </View>
-          )}
-          {stop.notes ? (
-            <View style={[styles.tag, styles.tagNote]}>
-              <Ionicons name="document-text-outline" size={10} color={COLORS.gray500} />
-            </View>
-          ) : null}
+          {stop.payment_type === 'cod' && stop.cod_amount
+            ? <View style={styles.tagCod}><Text style={styles.tagCodText}>💵 ₹{stop.cod_amount}</Text></View>
+            : <View style={styles.tagPaid}><Text style={styles.tagPaidText}>✓ Paid</Text></View>
+          }
+          {stop.is_fragile && <View style={styles.tagFragile}><Text style={styles.tagFragileText}>⚠️ Fragile</Text></View>}
         </View>
       </View>
 
-      {/* Right side */}
-      <View style={styles.right}>
-        {showDelete ? (
-          <TouchableOpacity onPress={onDelete} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+      {showDelete
+        ? <TouchableOpacity onPress={onDelete} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
             <Ionicons name="trash-outline" size={18} color={COLORS.danger} />
           </TouchableOpacity>
-        ) : (
-          <Ionicons name="chevron-forward" size={18} color={COLORS.gray400} />
-        )}
-      </View>
+        : <Ionicons name="chevron-forward" size={16} color={COLORS.gray300} />
+      }
     </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: COLORS.white,
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 8,
-    borderWidth: 0.5,
-    borderColor: COLORS.gray200,
-    gap: 10,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: COLORS.white, borderRadius: 16, padding: 14,
+    borderWidth: 1, borderColor: COLORS.gray100,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
   },
-  cardActive: {
-    borderColor: COLORS.accent,
-    borderWidth: 1.5,
+  cardActive: { borderColor: COLORS.accent, borderWidth: 1.5, backgroundColor: COLORS.accentLight },
+  cardDone: { opacity: 0.6, backgroundColor: COLORS.gray50 },
+  cardFailed: { borderColor: COLORS.danger + '40' },
+  numWrap: {
+    width: 32, height: 32, borderRadius: 10,
+    backgroundColor: COLORS.gray100, alignItems: 'center', justifyContent: 'center',
   },
-  badge: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-    marginTop: 2,
-  },
-  badgeText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  content: {
-    flex: 1,
-    gap: 3,
-  },
-  name: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: COLORS.gray900,
-  },
-  address: {
-    fontSize: 12,
-    color: COLORS.gray500,
-    lineHeight: 16,
-  },
-  tags: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 4,
-    marginTop: 4,
-  },
-  tag: {
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  tagCod: { backgroundColor: COLORS.warningLight },
-  tagCodText: { fontSize: 10, color: '#92400e', fontWeight: '500' },
-  tagPaid: { backgroundColor: COLORS.successLight },
-  tagPaidText: { fontSize: 10, color: '#14532d', fontWeight: '500' },
-  tagFragile: { backgroundColor: COLORS.dangerLight },
-  tagFragileText: { fontSize: 10, color: '#7f1d1d', fontWeight: '500' },
-  tagNote: { backgroundColor: COLORS.gray100, width: 20, alignItems: 'center' },
-  right: {
-    paddingTop: 4,
-  },
+  numWrapActive: { backgroundColor: COLORS.primary },
+  numWrapDone: { backgroundColor: COLORS.success },
+  numWrapFailed: { backgroundColor: COLORS.danger },
+  num: { fontSize: 13, fontWeight: '700', color: COLORS.gray600 },
+  numActive: { color: COLORS.white },
+  content: { flex: 1, gap: 3 },
+  name: { fontSize: 14, fontWeight: '600', color: COLORS.gray900 },
+  nameDone: { textDecorationLine: 'line-through', color: COLORS.gray400 },
+  address: { fontSize: 12, color: COLORS.gray400 },
+  tags: { flexDirection: 'row', gap: 6, marginTop: 2 },
+  tagCod: { backgroundColor: COLORS.warningLight, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  tagCodText: { fontSize: 10, fontWeight: '600', color: '#92400e' },
+  tagPaid: { backgroundColor: COLORS.successLight, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  tagPaidText: { fontSize: 10, fontWeight: '600', color: '#065f46' },
+  tagFragile: { backgroundColor: COLORS.dangerLight, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  tagFragileText: { fontSize: 10, fontWeight: '600', color: '#7f1d1d' },
 });
